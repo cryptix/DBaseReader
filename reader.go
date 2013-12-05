@@ -20,7 +20,7 @@ type DBaseReader struct {
 
 func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 	dbr = &DBaseReader{
-		rawInput: bufio.NewReader(input),
+		rawInput: bufio.NewReaderSize(input, 32*1024),
 		header:   &dbHeader{},
 	}
 
@@ -65,7 +65,8 @@ func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 	headerBytesLeft -= 1
 
 	if headerBytesLeft > 0 {
-		fmt.Printf("Header Bytes Left: %d.. Read Properties?!..\n", headerBytesLeft)
+		err = fmt.Errorf("Error: Header Bytes Left: %d.. Read Properties?!..\n", headerBytesLeft)
+		return
 
 		// headerLeftOver := make([]byte, headerBytesLeft)
 		// err = binary.Read(dbr.rawInput, binary.LittleEndian, headerLeftOver)
@@ -118,7 +119,6 @@ func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Println("RecBuf:", string(buf))
 
 	offset := 0
 	for _, field := range dbr.fields {

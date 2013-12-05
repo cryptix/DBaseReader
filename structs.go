@@ -21,10 +21,6 @@ var dbFileTypeToNameMap = map[byte]string{
 	0xFB: "FoxBASE",
 }
 
-// func dbFieldToTypeMap(field byte) type {
-
-// }
-
 // 1.1 table file header
 const dbHeaderSize = 68
 
