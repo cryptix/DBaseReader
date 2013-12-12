@@ -6,9 +6,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
+
+	"github.com/chewxy/gogogadget"
 )
 
-type DBRecordT map[string]string
+type DBRecordT map[string]interface{}
 
 type DBaseReader struct {
 	rawInput *bufio.Reader
@@ -95,6 +98,7 @@ func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 func (dbr *DBaseReader) PrintHeaderInfo() {
 	fmt.Printf("Headers\n=======\n%s\n", dbr.header)
 }
+
 func (dbr *DBaseReader) PrintFieldsInfo() {
 	fmt.Printf("Fields\n======\n%s\n", dbr.fields)
 }
@@ -125,20 +129,37 @@ func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
 		n := bytes.Index(field.FieldName[:], []byte{0})
 		fname := toUtf8(field.FieldName[:n])
 		flen := int(field.FieldLen)
+		fdata := buf[offset : offset+flen]
+		switch field.FieldType {
 
-		rec[fname] = toUtf8(bytes.TrimSpace(buf[offset : offset+flen]))
+		case 'C':
+			rec[fname] = toUtf8(bytes.TrimSpace(fdata))
+
+		case 'I':
+			rec[fname] = bytesToInt32be(fdata) + 2147483647 + 1
+
+		case 'D':
+			dateStr := toUtf8(bytes.TrimSpace(fdata))
+			if dateStr == "" {
+				continue
+			}
+
+			dateParse, err := time.Parse("20060102", dateStr)
+			if err != nil {
+				return nil, err
+			}
+			rec[fname] = dateParse
+
+		default:
+			debug := fdata
+			fmt.Println("Raw Bits:", gogogadget.BinaryRepresentation(debug))
+			fmt.Printf("String:%s\n", string(debug))
+			// fmt.Printf("Byte Decipher: %v %d %d\n", intB, intBe+2147483647+1, intLe)
+			return nil, fmt.Errorf("Unhandled FieldType:%c - %v\n", field.FieldType, field)
+		}
 		offset += flen
 	}
 
 	dbr.recordsLeft -= 1
 	return rec, nil
-}
-
-// thanks http://stackoverflow.com/questions/13510458/golang-convert-iso8859-1-to-utf8
-func toUtf8(iso8859_1_buf []byte) string {
-	buf := make([]rune, len(iso8859_1_buf))
-	for i, b := range iso8859_1_buf {
-		buf[i] = rune(b)
-	}
-	return string(buf)
 }
