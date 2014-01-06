@@ -6,9 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"reflect"
 	"time"
-
-	"github.com/chewxy/gogogadget"
 )
 
 type DBRecordT map[string]interface{}
@@ -103,7 +102,7 @@ func (dbr *DBaseReader) PrintFieldsInfo() {
 	fmt.Printf("Fields\n======\n%s\n", dbr.Fields)
 }
 
-func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
+func (dbr *DBaseReader) Decode(rec interface{}) (err error) {
 	if dbr.recordsLeft == 0 {
 		err = io.EOF
 		return
@@ -116,50 +115,66 @@ func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
 		}
 	}
 
-	rec = make(DBRecordT)
-
 	buf := make([]byte, dbr.Header.NumBytesInRecord)
 	err = binary.Read(dbr.rawInput, binary.LittleEndian, &buf)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	offset := 0
-	for _, field := range dbr.Fields {
-		n := bytes.Index(field.FieldName[:], []byte{0})
-		fname := toUtf8(field.FieldName[:n])
-		flen := int(field.FieldLen)
+	for _, dbrField := range dbr.Fields {
+		n := bytes.Index(dbrField.FieldName[:], []byte{0})
+		fname := toUtf8(dbrField.FieldName[:n])
+		flen := int(dbrField.FieldLen)
 		fdata := buf[offset : offset+flen]
-		switch field.FieldType {
 
-		case 'C':
-			rec[fname] = toUtf8(bytes.TrimSpace(fdata))
+		recPtr := reflect.ValueOf(rec)
 
-		case 'I':
-			rec[fname] = bytesToInt32be(fdata) + 2147483647 + 1
+		recStruct := recPtr.Elem()
 
-		case 'D':
-			dateStr := toUtf8(bytes.TrimSpace(fdata))
-			if dateStr == "" {
-				continue
+		if recStruct.Kind() != reflect.Struct {
+			return fmt.Errorf("Can only Decode into Structs, Kind: %s", recStruct.Kind())
+		}
+
+		recField := recStruct.FieldByName(fname)
+		if recField.IsValid() && recField.CanSet() {
+			switch dbrField.FieldType {
+
+			case 'C':
+				if recField.Kind() == reflect.String {
+					recField.SetString(toUtf8(bytes.TrimSpace(fdata)))
+				}
+
+			case 'I':
+				if recField.Kind() == reflect.Int {
+					i := int64(bytesToInt32be(fdata) + 2147483647 + 1)
+					if recField.OverflowInt(i) {
+						return fmt.Errorf("Field <%s> int overflow", fname)
+					}
+					recField.SetInt(i)
+				}
+
+			case 'D':
+				if recField.Type().String() == "time.Time" {
+					dateStr := toUtf8(bytes.TrimSpace(fdata))
+					if dateStr == "" {
+						continue
+					}
+					dateParse, err := time.Parse("20060102", dateStr)
+					if err != nil {
+						return err
+					}
+
+					dateReflect := reflect.ValueOf(dateParse)
+					recField.Set(dateReflect)
+				}
 			}
-
-			dateParse, err := time.Parse("20060102", dateStr)
-			if err != nil {
-				return nil, err
-			}
-			rec[fname] = dateParse
-
-		default:
-			debug := fdata
-			fmt.Println("Raw Bits:", gogogadget.BinaryRepresentation(debug))
-			fmt.Printf("String:%s\n", string(debug))
-			// fmt.Printf("Byte Decipher: %v %d %d\n", intB, intBe+2147483647+1, intLe)
-			return nil, fmt.Errorf("Unhandled FieldType:%c - %v\n", field.FieldType, field)
+			// } else {
+			// return fmt.Errorf("Field:%v Field Name: %s\nField valid: %v\nCanSet: %v\n", recField, fname, recField.IsValid(), recField.CanSet())
 		}
 		offset += flen
 	}
 
 	dbr.recordsLeft -= 1
-	return rec, nil
+	return nil
 }
