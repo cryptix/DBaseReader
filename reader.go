@@ -15,8 +15,8 @@ type DBRecordT map[string]interface{}
 
 type DBaseReader struct {
 	rawInput *bufio.Reader
-	header   *dbHeader
-	fields   []*dbFieldDescriptor
+	Header   *dbHeader
+	Fields   []*dbFieldDescriptor
 
 	recordsLeft int
 }
@@ -24,17 +24,17 @@ type DBaseReader struct {
 func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 	dbr = &DBaseReader{
 		rawInput: bufio.NewReaderSize(input, 32*1024),
-		header:   &dbHeader{},
+		Header:   &dbHeader{},
 	}
 
-	err = binary.Read(dbr.rawInput, binary.LittleEndian, dbr.header)
+	err = binary.Read(dbr.rawInput, binary.LittleEndian, dbr.Header)
 	if err != nil {
 		return
 	}
 
-	dbr.recordsLeft = int(dbr.header.NumRecords)
+	dbr.recordsLeft = int(dbr.Header.NumRecords)
 
-	headerBytesLeft := dbr.header.NumBytesInHeader
+	headerBytesLeft := dbr.Header.NumBytesInHeader
 	headerBytesLeft -= dbHeaderSize
 
 	// read field descriptors until 0x0D termination byte
@@ -46,7 +46,7 @@ func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 			return
 		}
 
-		dbr.fields = append(dbr.fields, field)
+		dbr.Fields = append(dbr.Fields, field)
 		headerBytesLeft -= dbFieldDescriptorSize
 
 		// check for terminator byte
@@ -96,11 +96,11 @@ func NewReader(input io.Reader) (dbr *DBaseReader, err error) {
 }
 
 func (dbr *DBaseReader) PrintHeaderInfo() {
-	fmt.Printf("Headers\n=======\n%s\n", dbr.header)
+	fmt.Printf("Headers\n=======\n%s\n", dbr.Header)
 }
 
 func (dbr *DBaseReader) PrintFieldsInfo() {
-	fmt.Printf("Fields\n======\n%s\n", dbr.fields)
+	fmt.Printf("Fields\n======\n%s\n", dbr.Fields)
 }
 
 func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
@@ -109,8 +109,8 @@ func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
 		return
 	}
 
-	for dbr.rawInput.Buffered() < int(dbr.header.NumBytesInRecord) {
-		_, err = dbr.rawInput.Peek(int(dbr.header.NumBytesInRecord))
+	for dbr.rawInput.Buffered() < int(dbr.Header.NumBytesInRecord) {
+		_, err = dbr.rawInput.Peek(int(dbr.Header.NumBytesInRecord))
 		if err != nil {
 			return
 		}
@@ -118,14 +118,14 @@ func (dbr *DBaseReader) ReadRecord() (rec DBRecordT, err error) {
 
 	rec = make(DBRecordT)
 
-	buf := make([]byte, dbr.header.NumBytesInRecord)
+	buf := make([]byte, dbr.Header.NumBytesInRecord)
 	err = binary.Read(dbr.rawInput, binary.LittleEndian, &buf)
 	if err != nil {
 		return nil, err
 	}
 
 	offset := 0
-	for _, field := range dbr.fields {
+	for _, field := range dbr.Fields {
 		n := bytes.Index(field.FieldName[:], []byte{0})
 		fname := toUtf8(field.FieldName[:n])
 		flen := int(field.FieldLen)
